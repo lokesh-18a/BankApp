@@ -12,7 +12,6 @@ struct bankAccount{
     int accountNo; // Account number
     int pin; // PIN for transactions
     int hasPin; // Flag to indicate if PIN is set
-    int exists; // Flag to indicate if account exists
 };
 struct Transaction{
     int accountNo;
@@ -170,7 +169,6 @@ void createAccount(HashTable *ht){
         // Initially Bank Balance set to zero (0.00)
         newAccount.balance = 0.00;
         newAccount.hasPin = 0;
-        newAccount.exists = 1;
         numAccounts++;
         insert(ht,newAccount.accountNo, newAccount);
         printf("Account created successfully.\n");
@@ -337,11 +335,49 @@ void check(HashTable *ht, int accountNumber){
         return;
     }
 }
+bool sendMoney(HashTable *ht, int sender, int receiver, float amount){
+    struct bankAccount *senderAccount = search(ht,sender);
+    struct bankAccount *receiverAccount = search(ht,receiver);
+    if(senderAccount==NULL){
+        printf("Sender Account Not Found!\n");
+        return false;
+    }
+    if(receiverAccount==NULL){
+        printf("Receiver Account Not Found!\n");
+        return false;
+    }
+    if(senderAccount->hasPin == 0){
+        printf("Sender PIN not set. Transaction Failed!.\n");
+        return false;
+    }
+    if(senderAccount->balance < amount){
+        printf("Insufficient Funds Poor Peasant \U0001F612\n");
+        return false;
+    }
+    senderAccount->balance -= amount;
+    receiverAccount->balance += amount;
+    struct Transaction senderTransaction, receiverTransaction;
+
+    getDate(senderTransaction.date);
+    senderTransaction.accountNo = sender;
+    strcpy(senderTransaction.type, "Transfer Out");
+    senderTransaction.amount = amount;
+    recordTransaction(senderTransaction);
+
+    getDate(receiverTransaction.date);
+    receiverTransaction.accountNo = receiver;
+    strcpy(receiverTransaction.type, "Transfer In");
+    receiverTransaction.amount = amount;
+    recordTransaction(receiverTransaction);
+
+    printf("Transfer Successful. New Balance = %.2f\n",senderAccount->balance);
+    return true;
+}
 int main(){
     HashTable *ht = createHashTable();
     loadAccounts(ht);
     printf("Welcome to Console Bank\n");
-    int key,choice,accountNumber;
+    int key,choice,accountNumber,accountNumber1;
     float amount;
     bool val;
     do{
@@ -351,7 +387,8 @@ int main(){
         printf("3. Deposit\n");
         printf("4. Withdrawal\n");
         printf("5. Check Balance\n");
-        printf("6. Exit\n");
+        printf("6. Send Money\n");
+        printf("7. Exit\n");
         printf("Enter my(your) choice: ");
         scanf("%d",&choice);
         switch(choice){
@@ -406,13 +443,31 @@ int main(){
                         printf("Exiting to Main Menu....\n");
                    break;
             case 6:
+                   printf("Enter Sender Account Number :");
+                   scanf("%d",&accountNumber);
+                   printf("Enter Receiver Account Number :");
+                   scanf("%d",&accountNumber1);
+                   printf("Enter Amount to Send :");
+                   scanf("%f",&amount);
+                   if(validAccountNumber(accountNumber))
+                        if(validAccountNumber(accountNumber1))
+                            if(validAmount(amount))
+                                sendMoney(ht,accountNumber,accountNumber1,amount);
+                            else
+                                printf("Invalid Amount. Exiting to Main Menu....\n");
+                        else
+                            printf("Invalid Receiver Account Number. Exiting to Main Menu....\n");
+                   else
+                        printf("Invalid Sender Account Number. Exiting to Main Menu....\n");
+                    break;
+            case 7:
                    printf("Exiting the Bank. Thank You!\n");
                    break;
             default:
                     printf("Invalid choice. Please enter a valid option.\n");
         }
     }
-    while(choice!=6);
+    while(choice!=7);
     saveAccounts(ht);
     return 0;
 }
