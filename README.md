@@ -1,7 +1,6 @@
 ## BankApp
 - **Console Based Bank Application**
 - **This is Console Based Bank Application.**
-- *my deadline to complete this is August 31 2024*
 ---------------------------------------------------------------------
 **New Update** - 11 August 2024
 - Uses Hash Table for fast access and operations
