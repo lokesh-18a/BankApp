@@ -164,7 +164,7 @@ void saveAccounts(HashTable *ht){
         perror("Error opening file.");
         return;
     }
-    if (fprintf(file, "Account Holder,Account Number,Balance,Pin,HasPin") < 0) {
+    if (fprintf(file, "Account Holder,Account Number,Balance,Pin,HasPin\n") < 0) {
         perror("Error writing header to accounts.csv");
         fclose(file);
         return;
@@ -280,6 +280,7 @@ void createAccount(HashTable *ht, int *numAccounts){
     newAccount.accountNo = newAccNo;
     newAccount.balance = 0.0;
     newAccount.hasPin = false;
+    newAccount.pin = 0;
 
     insert(ht, newAccount.accountNo, newAccount);
     (*numAccounts)++;
