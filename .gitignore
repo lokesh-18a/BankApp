@@ -1,0 +1,32 @@
+# Compiled object files
+*.o
+*.obj
+
+# Executable files
+bank_app
+*.exe
+*.out
+*.out.exe
+
+# Backup files
+*~
+*.bak
+
+# Temporary files
+*.tmp
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# CSV or transaction files you might want to ignore if they are generated
+accounts.csv
+account_*_transactions.txt

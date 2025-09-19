@@ -4,61 +4,145 @@
 #include <math.h>
 #include <time.h>
 #include <stdbool.h>
-#define MAX_ACCTS 100 // Maximum number of bank accounts
+
+// --- Constants and Type Definitions ---
+
+#define MAX_ACCTS 100            // Maximum number of bank accounts
+#define ACCT_HOLDER_NAME_LEN 50  // Maximum length of account holder's name
+
 // Structure to represent Bank Account
-struct bankAccount{
-    char accountHolder[20]; // Name of the account holder
-    float balance; // Balance in the account
-    int accountNo; // Account number
-    int pin; // PIN for transactions
-    int hasPin; // Flag to indicate if PIN is set
-};
-struct Transaction{
+typedef struct BankAccount{
+    char accountHolder[ACCT_HOLDER_NAME_LEN]; // Name of the account holder
+    float balance;                            // Balance in the account
+    int accountNo;                            // Account number
+    int pin;                                  // PIN for transactions
+    int hasPin;                               // Flag to indicate if PIN is set
+} BankAccount;
+
+// Structure to represent a Transaction
+typedef struct Transaction{
     int accountNo;
     char type[20];
     float amount;
     char date[11];
-};
+} Transaction;
+
 // Hash Table Entry structure
 typedef struct HashEntry{
-    int key; // Key for the entry
-    struct bankAccount data; // Data associated with the key
+    int key;                // Key for the entry
+    BankAccount data;       // Data associated with the key
     struct HashEntry *next; // Pointer to the next entry in the chain
-}HashEntry;
+} HashEntry;
+
 // Hash Table structure
 typedef struct HashTable{
     HashEntry **table; // Array of pointers to HashEntry structures
-}HashTable;
+} HashTable;
+
+void clearInputBuffer() {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
+bool validAccountNumber(int accountNumber){
+    return accountNumber >= 1000 && accountNumber <= 9999;
+}
+
+bool validAmount(float amount){
+    return amount >= 0.00 && amount <= 200000.00;
+}
+
 // Function to calculate the hash value for a key
 int hashFunction(int key){
-    return key%MAX_ACCTS; // Simple hash function
+    return key % MAX_ACCTS; // Simple modulo hash function
 }
+
+// Function to search for a bank account by key
+BankAccount *search(HashTable *ht, int key){
+    int index = hashFunction(key);
+    HashEntry *entry = ht -> table[index];
+    while(entry != NULL){
+        if(entry -> key == key)
+            return &(entry -> data);
+        entry = entry->next;
+    }
+    return NULL;
+}
+
+BankAccount* authenticateUser(HashTable *ht, int accountNumber) {
+    if (!validAccountNumber(accountNumber)) {
+        printf("Invalid Account Number. Exiting to Main Menu....\n");
+        return NULL;
+    }
+
+    BankAccount *account = search(ht, accountNumber);
+    if (account == NULL) {
+        printf("Account Not Found!\n");
+        printf("Try Again!\n");
+        return NULL;
+    }
+
+    if (!account->hasPin) {
+        printf("PIN not set. Exiting to Main Menu....\n");
+        return NULL;
+    }
+
+    int enteredPin, pinAttempts = 0;
+    while (pinAttempts < 3) {
+        printf("Enter your 4-digit PIN: ");
+        if (scanf("%d", &enteredPin) != 1) {
+            printf("Invalid input. Please enter a numeric PIN.\n");
+            clearInputBuffer(); // Clear invalid input
+            continue;
+        }
+        clearInputBuffer(); // Clear the newline character from the buffer
+
+        if (enteredPin == account->pin) {
+            return account; // Authentication successful
+        } else {
+            pinAttempts++;
+            printf("Incorrect PIN. %d attempts remaining.\n", 3 - pinAttempts);
+        }
+    }
+
+    printf("Too many incorrect PIN attempts. Exiting to Main Menu....\n");
+    return NULL; // Authentication failed
+}
+
 // Function to create a new hash table
 HashTable *createHashTable(){
     HashTable *ht = (HashTable *)malloc(sizeof(HashTable)); // Allocate memory for the hash table
-    ht->table = (HashEntry **)malloc(MAX_ACCTS * sizeof(HashEntry *)); // Allocate memory for the table array
-    for(int i=0;i<MAX_ACCTS;i++)
-        ht->table[i]=NULL; // Initialize each entry to NULL
+    if (ht == NULL) {
+        perror("Memory allocation failed for hash table.");
+        exit(EXIT_FAILURE);
+    }
+    ht->table = (HashEntry **)calloc(MAX_ACCTS, sizeof(HashEntry *)); // Allocate memory for the table array
+    if (ht->table == NULL) {
+        perror("Memory allocation failed for hash table entries.");
+        free(ht); // Free previously allocated memory
+        exit(EXIT_FAILURE);
+    }
     return ht; // Return the newly created hash table
 }
-// // Function to insert a new bank account into the hash table
-void insert(HashTable *ht, int key, struct bankAccount data){
+
+// Function to insert a new bank account into the hash table
+void insert(HashTable *ht, int key, BankAccount data){
     int index = hashFunction(key);
     HashEntry *newEntry = (HashEntry *)malloc(sizeof(HashEntry)); // Allocate memory for the new entry
-    newEntry->key=key;
-    newEntry->data=data;
-    newEntry->next=NULL;
-    if(ht->table[index]==NULL)
-        ht->table[index]=newEntry;
-    else{
-        HashEntry *current = ht->table[index];
-        while(current->next!=NULL)
-            current=current->next;
-        current->next=newEntry;
+    if (newEntry == NULL) {
+        perror("Memory allocation failed for new hash entry.");
+        return;
     }
+    newEntry -> key = key;
+    newEntry -> data = data;
+    newEntry -> next = NULL;
+    
+    newEntry -> next = ht -> table[index]; // Insert the new entry at the beginning of the chain
+    ht -> table[index] = newEntry;       // Update the head of the chain to
 }
+
 // Function to update an existing bank account in the hash table
-bool update(HashTable *ht, int key, struct bankAccount data){
+bool update(HashTable *ht, int key, BankAccount data){
     int index = hashFunction(key);
     HashEntry *current = ht->table[index];
     while(current!=NULL){
@@ -70,395 +154,393 @@ bool update(HashTable *ht, int key, struct bankAccount data){
     }
     return false; // Return false to indicate that the key was not found
 }
+
+// --- File I/O and Transaction Logging ---
+
 // Function to save all bank accounts to a CSV file
 void saveAccounts(HashTable *ht){
-    FILE *file=fopen("accounts.csv","w");
-    if(file==NULL){
-        printf("Error opening file.\n");
+    FILE *file = fopen("accounts.csv","w");
+    if(file == NULL){
+        perror("Error opening file.");
         return;
     }
-    fprintf(file,"Account Holder,Account Number,Balance,Pin,HasPin\n"); // Write the header row to the file
-    for(int i = 0;i < MAX_ACCTS;i++){
-        HashEntry *current = ht->table[i];
-        while(current!=NULL){
-            fprintf(file,"%s,%d,%.2f,%d,%d\n",current->data.accountHolder,current->data.accountNo,current->data.balance,current->data.pin,current->data.hasPin);
+    if (fprintf(file, "Account Holder,Account Number,Balance,Pin,HasPin") < 0) {
+        perror("Error writing header to accounts.csv");
+        fclose(file);
+        return;
+    }
+    for(int i = 0; i < MAX_ACCTS; i++){
+        HashEntry *current = ht -> table[i];
+        while(current != NULL){
+            if (fprintf(file, "\"%s\",%d,%.2f,%d,%d\n",
+                        current->data.accountHolder,
+                        current->data.accountNo,
+                        current->data.balance,
+                        current->data.pin,
+                        current->data.hasPin) < 0) {
+                perror("Error writing account to accounts.csv");
+                fclose(file);
+                return;
+            }
             current=current->next;
         }
     }
-    fclose(file);
-    printf("Account data saved to accounts.csv\n");
-}
-// Function to load bank accounts from a CSV file into the hash table
-void loadAccounts(HashTable *ht){
-    FILE *file = fopen("accounts.csv","r");
-    if(file==NULL){
+    if (fclose(file) == EOF) {
+        perror("Error closing accounts.csv");
         return;
     }
-    char line[100]; // Buffer to store each line of the file
-    fgets(line,sizeof(line),file); // Read the header row and discard it
-    while(fgets(line, 100, file)){
-        struct bankAccount newAccount;
-        char *token = strtok(line, ",");
-        strcpy(newAccount.accountHolder, token);
-        token = strtok(NULL, ",");
-        newAccount.accountNo = atoi(token);
-        token = strtok(NULL, ",");
-        newAccount.balance = atof(token);
-        token = strtok(NULL, ",");
-        newAccount.pin = atoi(token);
-        token = strtok(NULL, ",");
-        newAccount.hasPin = atoi(token);
-        insert(ht,newAccount.accountNo,newAccount);
-    }
-    fclose(file);
+    printf("Account data saved to accounts.csv\n");
 }
+
+// Function to load bank accounts from a CSV file
+int loadAccounts(HashTable *ht){
+    FILE *file = fopen("accounts.csv","r");
+    if(file == NULL){
+        perror("Error opening accounts.csv for reading");
+        return 0;
+    }
+    char line[1024]; // Buffer to store each line of the file
+    int count = 0;
+    if (fgets(line, sizeof(line), file) == NULL) {
+        // empty file or read error
+        fclose(file);
+        return 0;
+    }
+    while(fgets(line, sizeof(line), file)){
+        BankAccount newAccount;
+        // Parse line with quoted account holder name
+        int result = sscanf(line, "\"%19[^\"]\",%d,%f,%d,%d",
+                            newAccount.accountHolder,
+                            &newAccount.accountNo,
+                            &newAccount.balance,
+                            &newAccount.pin,
+                            &newAccount.hasPin);
+        if(result == 5){
+            insert(ht, newAccount.accountNo, newAccount);
+            count++;
+        } else {
+            fprintf(stderr, "Malformed line in accounts.csv: %s", line);
+        }
+    }
+    if (fclose(file) == EOF) {
+        perror("Error closing accounts.csv");
+        return count;
+    }
+    printf("Loaded %d accounts from accounts.csv\n", count);
+    return count;
+}
+
+// --- Transaction and Date Functions ---
+
+// Fills the date string with the current date in DD-MM-YYYY format
 void getDate(char *date){
     time_t t = time(NULL);
     struct tm tm = *localtime(&t);
-    sprintf(date,"%02d-%02d-%04d",tm.tm_mday,tm.tm_mon+1,tm.tm_year+1900);
+    sprintf(date,"%02d-%02d-%04d",tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900);
 }
-char* generateFilename(int accountNo){
-    char *filename = malloc(50 * sizeof(char));
-    sprintf(filename, "account_%d_transactions.txt", accountNo);
-    return filename;
+
+// Generates a transaction filename based on the account number
+void generateFilename(int accountNo, char *filename, int size){
+    snprintf(filename, size, "account_%d_transactions.txt", accountNo);
 }
-void recordTransaction(struct Transaction transaction){
-    char *filename = generateFilename(transaction.accountNo);
+
+// Records a transaction to the corresponding account's transaction file
+void recordTransaction(Transaction transaction){
+    char filename[50];
+    generateFilename(transaction.accountNo, filename, sizeof(filename));
     FILE *file = fopen(filename, "a");
     if (file == NULL) {
-        printf("Error opening file.\n");
+        perror("Error opening file.");
         return;
     }
-    fprintf(file, "Date: %s | Type: %s | Amount: %.2f\n", transaction.date,transaction.type,transaction.amount);
+    fprintf(file, "Date: %s | Type: %s | Amount: %.2f\n", transaction.date,
+        transaction.type,
+        transaction.amount);
     fclose(file);
-    free(filename);
 }
-struct bankAccount *search(HashTable *ht,int key){
-    int index = hashFunction(key);
-    HashEntry *entry = ht->table[index];
-    while(entry!=NULL){
-        if(entry->key==key)
-            return &(entry->data);
-        entry=entry->next;
-    }
-    return NULL;
-}
-int min = 1000;
-int max = 9999;
-int numAccounts=0;
-bool validAccountNumber(int accountNumber){
-    if (accountNumber >= min && accountNumber <= max)
-        return true;
-    return false;
-}
-bool validAmount(float amount){
-    if (amount >= 0.00 && amount <= 200000)
-        return true;
-    return false;
-}
+
 // Function to create a new bank account
-void createAccount(HashTable *ht){
-    if(numAccounts < MAX_ACCTS){
-        struct bankAccount newAccount;
-        printf("Enter Account holder name: ");
-        scanf("%s",newAccount.accountHolder);
-        srand(time(0));
-        int num = rand() % (max - min + 1) + min;
-        newAccount.accountNo = num;
-        printf("Account Number: %d generated successfully.\n",newAccount.accountNo);
-        // Initially Bank Balance set to zero (0.00)
-        newAccount.balance = 0.00;
-        newAccount.hasPin = 0;
-        numAccounts++;
-        insert(ht,newAccount.accountNo, newAccount);
-        printf("Account created successfully.\n");
+void createAccount(HashTable *ht, int *numAccounts){
+    if (*numAccounts >= MAX_ACCTS) {
+        fprintf(stderr, "Cannot create more accounts. Maximum limit reached.\n");
+        return;
     }
-    else{
-        printf("Cannot create more accounts.\n");
-        printf("Maximum limit reached.\n");
-        printf(" Please come after lunch time!!.");
+    BankAccount newAccount;
+    printf("Enter Account holder name: ");
+    if (fgets(newAccount.accountHolder, ACCT_HOLDER_NAME_LEN, stdin) == NULL) {
+        printf("Error reading account holder name. Exiting...\n");
+        return;
     }
+    newAccount.accountHolder[strcspn(newAccount.accountHolder, "\n")] = '\0';
+    int newAccNo;
+    do {
+        newAccNo = (rand() % 9000) + 1000; // Generate a random 4-digit account number
+    } while (search(ht, newAccNo) != NULL);
+    
+    newAccount.accountNo = newAccNo;
+    newAccount.balance = 0.0;
+    newAccount.hasPin = false;
+
+    insert(ht, newAccount.accountNo, newAccount);
+    (*numAccounts)++;
+    printf("Account created successfully! Your Account Number is %d\n", newAccount.accountNo);
 }
+
 // Function for pin creation for deposits and withdrawals
 void pinCreation(HashTable *ht){
-    int key,pin,temp,accountno;
+    int pin, temp, accountno, oldPin, attempts = 0;
     printf("Enter Account Number: ");
     scanf("%d",&accountno);
+    clearInputBuffer();
     if(!validAccountNumber(accountno)){
         printf("Invalid Account Number. Exiting to Main Menu....\n");
         return;
     }
-    struct bankAccount *account = search(ht,accountno);
-    if(account==NULL){
+    BankAccount *account = search(ht, accountno);
+    if(account == NULL){
         printf("Account Not Found!\n");
-        printf("Try Again!\n");
         return;
     }
-    printf("Account Found Successfully!\n");
-    printf("Are you sure to create pin?\n");
-    printf("Enter 0 for No and 1 for Yes\n");
-    scanf("%d",&key);
-    if(key){
-        if (account->hasPin) {
-            printf("PIN already exists for this account. Exiting to Main Menu....\n");
+    if (account->hasPin) {
+        printf("PIN already exists for this account.\n");
+        while (attempts < 3) {
+            printf("Enter current PIN to update: ");
+            scanf("%d", &oldPin);
+            clearInputBuffer();
+
+            if (oldPin == account->pin) {
+                break; // correct pin
+            }
+
+            attempts++;
+            if (attempts < 3) {
+                printf("Incorrect PIN. Try again (%d attempt(s) left).\n", 3 - attempts);
+            }
+        }
+
+        if (attempts == 3) {
+            printf("Too many failed attempts. Exiting to Main Menu....\n");
             return;
         }
-        printf("Enter the 4 digit password\n");
-        scanf("%d",&pin);
-        while(pin < 1000 || pin > 9999){
-            printf("Invalid PIN. Please enter a 4-digit number: ");
-            scanf("%d",&pin);
-        }
-        printf("Please Enter the PIN Again!\n");
-        scanf("%d",&temp);
-        while(temp!=pin){
-            printf("PINs do not match. Please Enter the PIN Again!\n");
-            scanf("%d",&temp);
-        }
-        printf("PIN created successfully!\n");
-        account->pin = temp;
-        account->hasPin = 1;
+    }
+    printf("Enter a new 4-digit PIN: ");
+    scanf("%d", &pin);
+    clearInputBuffer();
+    while(pin < 1000 || pin > 9999){
+        printf("Invalid PIN. Please enter a 4-digit number: \n");
+        scanf("%d", &pin);
+        clearInputBuffer();
+    }
+    printf("Re-enter the PIN for confirmation: ");
+    scanf("%d", &temp);
+    clearInputBuffer();
+    if(pin == temp){
+        printf("PIN %s successfully!\n", (account->hasPin ? "updated" : "set"));
+        account->pin = pin;
+        account->hasPin = true;
+    }
+    else{
+        printf("PINs do not match. PIN creation failed.\n");
     }
 }
 
-/* Function to perform a deposit into Bank Account*/
-void deposit(HashTable *ht, int accountNumber,float amount){
-    int enteredPin,pinAttempts = 0, correctPin = 0;
-    struct bankAccount *account = search(ht,accountNumber);
-    if(account==NULL){
-        printf("Account Not Found!\n");
-        printf("Deposit Failed!.\n");
-        return;
-    }
-    if(account->hasPin == 0){
-        printf("PIN not set. Deposit Failed!.\n");
-        return;
-    }
-    while(pinAttempts < 3 && !correctPin){
-        printf("Enter your 4-digit PIN: ");
-        scanf("%d",&enteredPin);
-        if(enteredPin == account->pin){
-            correctPin = 1;
-            account->balance += amount;
-            printf("Deposit Successful. New Balance = %.2f\n",account->balance);
-            struct Transaction transaction;
-            transaction.accountNo=accountNumber;
-            strcpy(transaction.type,"Deposit");
-            transaction.amount=amount;
-            getDate(transaction.date);
-            recordTransaction(transaction);
+// --- Function to perform a deposit into Bank Account --- 
+void deposit(HashTable *ht){
+    int accountNumber;
+    float amount;
+
+    printf("Enter Account Number for deposit : ");
+    scanf("%d",&accountNumber);
+    clearInputBuffer();
+
+    BankAccount *account = authenticateUser(ht, accountNumber);
+    if (account) {
+        printf("Enter Deposit amount : ");
+        scanf("%f",&amount);
+        clearInputBuffer();
+        if(!validAmount(amount)){
+            printf("Invalid Amount. Exiting to Main Menu....\n");
+            return;
         }
-        else{
-            pinAttempts++;
-            printf("Incorrect PIN. %d attempts remaining. \n",3 - pinAttempts);
-        }
-    }
-    if(!correctPin){
-        printf("Too many incorrect PIN attempts. Deposit failed.\n");
-        return;
+
+        account->balance += amount;
+        printf("Deposit Successful. New Balance = %.2f\n", account->balance);
+        Transaction transaction;
+        transaction.accountNo = accountNumber;
+        strcpy(transaction.type, "Deposit");
+        transaction.amount = amount;
+        getDate(transaction.date);
+        recordTransaction(transaction);
     }
 }
 
 /* Function to perform a withdrawal from a Bank Account*/
-void withdrawal(HashTable *ht, int accountNumber,float amount){
-    int enteredPin,pinAttempts = 0, correctPin = 0;
-    struct bankAccount *account = search(ht,accountNumber);
-    if(account==NULL){
-        printf("Account Not Found!\n");
-        printf("Withdrawal Failed!.\n");
-        return;
-    }
-    if(account->hasPin){
-        while(pinAttempts < 3 && !correctPin){
-            printf("Enter your 4-digit PIN: ");
-            scanf("%d",&enteredPin);
-            if(enteredPin == account->pin){
-                correctPin = 1;
-                if(amount <= account->balance){
-                    account->balance -= amount;
-                    printf("Withdrawal Successful. New Balance = %.2f\n",account->balance);
-                    struct Transaction transaction;
-                    transaction.accountNo=accountNumber;
-                    strcpy(transaction.type,"Withdrawal");
-                    transaction.amount=amount;
-                    getDate(transaction.date);
-                    recordTransaction(transaction);
-                }
-                else
-                    printf("Insufficient Funds Poor Peasant \U0001F612\n");
-            }
-            else{
-                pinAttempts++;
-                printf("Incorrect PIN. %d attempts remaining. \n",3 - pinAttempts);
-            }
-        }
-        if(!correctPin){
-            printf("Too many incorrect PIN attempts. Withdrawal failed.\n");
+void withdrawal(HashTable *ht){
+    int accountNumber;
+    float amount;
+    printf("Enter Account Number for withdrawal: ");
+    scanf("%d", &accountNumber);
+    clearInputBuffer();
+    
+    BankAccount *account = authenticateUser(ht, accountNumber);
+    if (account) {
+        printf("Enter withdrawal amount: ");
+        scanf("%f", &amount);
+        clearInputBuffer();
+
+        if (!validAmount(amount)) {
+            printf("Invalid withdrawal amount.\n");
+            return;
+        }   
+
+        if (account->balance < amount) {
+            printf("Insufficient Funds Poor Peasant \U0001F612\n");
             return;
         }
-    }
-    else{
-        printf("PIN not set. Withdrawal Failed!.\n");
-        return;
+        account->balance -= amount;
+        printf("Withdrawal Successful. New Balance = %.2f\n", account->balance);
+        Transaction transaction;
+        transaction.accountNo = accountNumber;
+        strcpy(transaction.type, "Withdrawal");
+        transaction.amount = amount;
+        getDate(transaction.date);
+        recordTransaction(transaction);
     }
 }
 
 /* Function to Check Bank Balance*/
-void check(HashTable *ht, int accountNumber){
-    int enteredPin,pinAttempts = 0, correctPin = 0;
-    struct bankAccount *account = search(ht,accountNumber);
-    if(account==NULL){
-        printf("Account Not Found!\n");
-        printf("Balance Check Failed!.\n");
-        return;
-    }
-    if(account->hasPin == 0){
-        printf("PIN not set. Deposit Failed!.\n");
-        return;
-    }
-    while(pinAttempts < 3 && !correctPin){
-        printf("Enter your 4-digit PIN: ");
-        scanf("%d",&enteredPin);
-        if(enteredPin == account->pin){
-            correctPin = 1;
-            printf("Account Found. Getting Details....\n");
-            printf("Account Holder : %s\nAccount Number : %ld\nBalance : %.2f\n",account->accountHolder,account->accountNo,account->balance);
-            return;
-        }
-        else{
-            pinAttempts++;
-            printf("Incorrect PIN. %d attempts remaining. \n",3 - pinAttempts);
-        }
-    }
-    if(!correctPin){
-        printf("Too many incorrect PIN attempts. Balance check failed.\n");
-        return;
+void checkBalance(HashTable *ht){
+    int accountNumber;
+    printf("Enter Account Number to check Balance : ");
+    scanf("%d",&accountNumber);
+    clearInputBuffer();
+    BankAccount *account = authenticateUser(ht, accountNumber);
+    if (account) {
+        printf("\n--- Account Details ---\n");
+        printf("Account Holder: %s\n", account->accountHolder);
+        printf("Account Number: %d\n", account->accountNo);
+        printf("Current Balance: %.2f\n", account->balance);
+        printf("-----------------------\n");
     }
 }
-bool sendMoney(HashTable *ht, int sender, int receiver, float amount){
-    struct bankAccount *senderAccount = search(ht,sender);
-    struct bankAccount *receiverAccount = search(ht,receiver);
-    if(senderAccount==NULL){
-        printf("Sender Account Not Found!\n");
-        return false;
+
+// Function to Send Money from one account to another
+void sendMoney(HashTable *ht){
+    int senderAccNo, receiverAccNo;
+    float amount;
+    BankAccount *senderAccount, *receiverAccount;
+
+    printf("Enter your Account Number: ");
+    scanf("%d", &senderAccNo);
+    clearInputBuffer();
+    senderAccount = authenticateUser(ht, senderAccNo);
+    if (senderAccount == NULL) {
+        printf("Sender authentication failed. Transaction cancelled.\n");
+        return;
     }
-    if(receiverAccount==NULL){
+
+    printf("Enter Receiver's Account Number: ");
+    scanf("%d", &receiverAccNo);
+    clearInputBuffer();
+
+    if (!validAccountNumber(receiverAccNo)) {
+        printf("Invalid Receiver Account Number format.\n");
+        return;
+    }
+
+    receiverAccount = search(ht, receiverAccNo);
+    if (receiverAccount == NULL) {
         printf("Receiver Account Not Found!\n");
-        return false;
+        return;
     }
-    if(senderAccount->hasPin == 0){
-        printf("Sender PIN not set. Transaction Failed!.\n");
-        return false;
+
+    if (senderAccNo == receiverAccNo) {
+        printf("Sender and receiver accounts cannot be the same.\n");
+        return;
     }
-    if(senderAccount->balance < amount){
-        printf("Insufficient Funds Poor Peasant \U0001F612\n");
-        return false;
+    printf("Enter Amount to Send: ");
+    scanf("%f", &amount);
+    clearInputBuffer();
+
+    if (!validAmount(amount)) {
+        printf("Invalid Amount. Exiting to Main Menu....\n");
+        return;
     }
+
+    if (senderAccount->balance < amount) {
+        printf("Insufficient Funds. Transaction cancelled.\n");
+        return;
+    }
+    
     senderAccount->balance -= amount;
     receiverAccount->balance += amount;
-    struct Transaction senderTransaction, receiverTransaction;
 
-    getDate(senderTransaction.date);
-    senderTransaction.accountNo = sender;
-    strcpy(senderTransaction.type, "Transfer Out");
-    senderTransaction.amount = amount;
-    recordTransaction(senderTransaction);
+    Transaction transaction;
+    getDate(transaction.date);
+    transaction.amount = amount;
+    
+    strcpy(transaction.type, "Transfer Out");
+    transaction.accountNo = senderAccNo;
+    recordTransaction(transaction);
+    
+    strcpy(transaction.type, "Transfer In");
+    transaction.accountNo = receiverAccNo;
+    recordTransaction(transaction);
 
-    getDate(receiverTransaction.date);
-    receiverTransaction.accountNo = receiver;
-    strcpy(receiverTransaction.type, "Transfer In");
-    receiverTransaction.amount = amount;
-    recordTransaction(receiverTransaction);
-
-    printf("Transfer Successful. New Balance = %.2f\n",senderAccount->balance);
-    return true;
+    printf("Transfer Successful.\n");
+    printf("Your new balance is: %.2f\n", senderAccount->balance);
 }
+
+void freeHashTable(HashTable *ht) {
+    for (int i = 0; i < MAX_ACCTS; i++) {
+        HashEntry *entry = ht->table[i];
+        while (entry != NULL) {
+            HashEntry *temp = entry;
+            entry = entry->next;
+            free(temp);
+        }
+    }
+    free(ht->table);
+    free(ht);
+}
+
 int main(){
+    srand(time(0));
     HashTable *ht = createHashTable();
-    loadAccounts(ht);
+    int numAccounts = loadAccounts(ht);
     printf("Welcome to Console Bank\n");
-    int key,choice,accountNumber,accountNumber1;
-    float amount;
-    bool val;
+    int choice;
     do{
         printf("\nConsole Bank\n");
         printf("1. Create a New Account\n");
-        printf("2. PIN Creation\n");
+        printf("2. Create / Update PIN\n");
         printf("3. Deposit\n");
         printf("4. Withdrawal\n");
         printf("5. Check Balance\n");
         printf("6. Send Money\n");
         printf("7. Exit\n");
-        printf("Enter my(your) choice: ");
+        printf("-------------------------\n");
+        printf("Enter your choice: ");
         scanf("%d",&choice);
+        clearInputBuffer();
         switch(choice){
             case 1:
-                   createAccount(ht);
+                   createAccount(ht, &numAccounts);
                    break;
             case 2:
                    pinCreation(ht);
                    break;
             case 3:
-                   printf("Enter Account Number for deposit : ");
-                   scanf("%d",&accountNumber);
-                   val = validAccountNumber(accountNumber);
-                   if(val){
-                        printf("Enter Deposit amount : ");
-                        scanf("%f",&amount);
-                        bool val2 = validAmount(amount);
-                        if(val2){
-                            deposit(ht,accountNumber,amount);
-                        }
-                        else
-                            printf("Invalid Amount. Exiting to Main Menu....\n");
-                   }
-                   else
-                        printf("Invalid Account Number. Exiting to Main Menu....\n");
+                   deposit(ht);
                    break;
             case 4:
-                   printf("Enter Account Number for withdrawal : ");
-                   scanf("%d",&accountNumber);
-                   val = validAccountNumber(accountNumber);
-                   if(val){
-                        printf("Enter Withdrawal amount : ");
-                        scanf("%f",&amount);
-                        bool val2 = validAmount(amount);
-                        if(val2){
-                            withdrawal(ht,accountNumber,amount);
-                        }
-                        else
-                            printf("Invalid Amount. Exiting to Main Menu....\n");
-                   }
-                   else
-                        printf("Invalid Account Number. Exiting to Main Menu....\n");
+                   withdrawal(ht);
                    break;
             case 5:
-                   printf("Enter Account Number to check Balance : ");
-                   scanf("%d",&accountNumber);
-                   val = validAccountNumber(accountNumber);
-                   if(val){
-                        check(ht,accountNumber);
-                   }
-                   else
-                        printf("Exiting to Main Menu....\n");
+                   checkBalance(ht);
                    break;
             case 6:
-                   printf("Enter Sender Account Number :");
-                   scanf("%d",&accountNumber);
-                   printf("Enter Receiver Account Number :");
-                   scanf("%d",&accountNumber1);
-                   printf("Enter Amount to Send :");
-                   scanf("%f",&amount);
-                   if(validAccountNumber(accountNumber))
-                        if(validAccountNumber(accountNumber1))
-                            if(validAmount(amount))
-                                sendMoney(ht,accountNumber,accountNumber1,amount);
-                            else
-                                printf("Invalid Amount. Exiting to Main Menu....\n");
-                        else
-                            printf("Invalid Receiver Account Number. Exiting to Main Menu....\n");
-                   else
-                        printf("Invalid Sender Account Number. Exiting to Main Menu....\n");
+                   sendMoney(ht);
                     break;
             case 7:
                    printf("Exiting the Bank. Thank You!\n");
@@ -469,5 +551,6 @@ int main(){
     }
     while(choice!=7);
     saveAccounts(ht);
+    freeHashTable(ht);
     return 0;
 }
